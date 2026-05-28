@@ -29,7 +29,7 @@
 Скопируй и выполни:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/main/install.sh | sudo bash
+wget -qO- https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/refs/heads/main/install.sh | sudo bash
 ```
 
 ---
