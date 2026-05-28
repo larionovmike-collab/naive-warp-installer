@@ -28,8 +28,8 @@
 
 Скопируй и выполни:
 
-```bash
-wget -qO- https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/refs/heads/main/install.sh | sudo bash
+```sh
+bash <(curl -sSL https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/refs/heads/main/install.sh)
 ```
 
 ---
