@@ -469,6 +469,10 @@ echo "Домен:"
 echo "https://$DOMAIN"
 
 echo ""
+echo "NaiveProxy URL:"
+echo "naive+https://$USER_NAME:$USER_PASS@$DOMAIN:443"
+
+echo ""
 echo "Логин:"
 echo "$USER_NAME"
 
@@ -477,18 +481,34 @@ echo "Пароль:"
 echo "$USER_PASS"
 
 echo ""
-echo "Конфиг клиента:"
+echo "Sing-box config:"
 echo ""
 
 cat <<EOF
 {
-  "listen": "socks://127.0.0.1:20808",
-  "proxy": "https://$USER_NAME:$USER_PASS@$DOMAIN"
+  "type": "naive",
+  "tag": "naive",
+  "server": "$DOMAIN",
+  "server_port": 443,
+  "username": "$USER_NAME",
+  "password": "$USER_PASS"
 }
 EOF
 
 echo ""
-echo "========================================"
-echo "Лог файл:"
-echo "$LOG_FILE"
+echo "Clash Meta:"
+echo ""
+
+cat <<EOF
+proxies:
+  - name: naive
+    type: naive
+    server: $DOMAIN
+    port: 443
+    username: $USER_NAME
+    password: $USER_PASS
+    sni: $DOMAIN
+EOF
+
+echo ""
 echo "========================================"
