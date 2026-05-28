@@ -83,7 +83,3 @@ wget -qO- https://raw.githubusercontent.com/larionovmike-collab/naive-warp-insta
 - обучения
 
 ---
-
-## ❤️ Автор
-
-Telegram: @DecPro
