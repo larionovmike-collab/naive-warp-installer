@@ -4,14 +4,17 @@ set -Eeuo pipefail
 
 # ==========================================
 # NaiveProxy + Caddy Installer
-# Production-ready edition
+# install / uninstall
 # ==========================================
 
 SCRIPT_NAME="$(basename "$0")"
 LOG_FILE="/var/log/naive-installer.log"
+
 GO_VERSION="1.22.0"
 GO_ARCHIVE="go${GO_VERSION}.linux-amd64.tar.gz"
 GO_URL="https://go.dev/dl/${GO_ARCHIVE}"
+
+MODE="${1:-install}"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -104,7 +107,7 @@ create_dir() {
 }
 
 # ==========================================
-# Backup config
+# Backup
 # ==========================================
 
 backup_file() {
@@ -112,7 +115,7 @@ backup_file() {
 
   if [[ -f "$file" ]]; then
     cp "$file" "${file}.bak.$(date +%F-%H%M%S)"
-    info "Backup создан: ${file}.bak"
+    info "Backup создан: ${file}.bak.$(date +%F-%H%M%S)"
   fi
 }
 
@@ -125,6 +128,91 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+# ==========================================
+# Uninstall
+# ==========================================
+
+uninstall() {
+
+  echo "========================================"
+  echo "NAIVEPROXY UNINSTALLER"
+  echo "========================================"
+
+  if [[ ! -f /etc/caddy/.naive-installer ]]; then
+    error "Установка не принадлежит naive-installer"
+    exit 1
+  fi
+
+  read -rp "Вы уверены? Все компоненты будут удалены (y/n): " CONFIRM
+
+  if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "Отменено"
+    exit 0
+  fi
+
+  info "Остановка Caddy..."
+
+  systemctl stop caddy 2>/dev/null || true
+  systemctl disable caddy 2>/dev/null || true
+
+  info "Удаление systemd service..."
+
+  rm -f /etc/systemd/system/caddy.service
+
+  systemctl daemon-reload
+
+  info "Удаление Caddy..."
+
+  rm -f /usr/bin/caddy
+
+  info "Удаление конфигов..."
+
+  rm -rf /etc/caddy
+
+  info "Удаление xcaddy..."
+
+  rm -f /root/go/bin/xcaddy
+
+  if command -v warp-cli >/dev/null 2>&1; then
+
+    info "Удаление WARP..."
+
+    warp-cli disconnect || true
+
+    apt remove -y cloudflare-warp || true
+
+    rm -f /etc/apt/sources.list.d/cloudflare-client.list
+
+    rm -f /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+  fi
+
+  info "Удаление временных файлов..."
+
+  rm -rf /root/tmp
+
+  info "Удаление логов..."
+
+  rm -f /var/log/naive-installer.log
+
+  info "Готово"
+
+  echo "========================================"
+  echo "UNINSTALL COMPLETE"
+  echo "========================================"
+}
+
+# ==========================================
+# Uninstall mode
+# ==========================================
+
+case "$MODE" in
+  --uninstall)
+    require_root
+    uninstall
+    exit 0
+    ;;
+esac
 
 # ==========================================
 # Checks
@@ -140,7 +228,6 @@ check_internet
 
 echo "========================================"
 echo "NAIVEPROXY INSTALLER"
-echo "Production Edition"
 echo "========================================"
 
 # ==========================================
@@ -181,9 +268,18 @@ fi
 # Port check
 # ==========================================
 
-if ss -tulpn | grep -q ":443 "; then
-  error "Порт 443 уже занят"
-  exit 1
+PORT_PROCESS=$(ss -tulpn | grep ':443 ' || true)
+
+if [[ -n "$PORT_PROCESS" ]]; then
+
+  warn "Порт 443 уже используется:"
+  echo "$PORT_PROCESS"
+
+  read -rp "Продолжить установку? (y/n): " PORT_CONTINUE
+
+  if [[ ! "$PORT_CONTINUE" =~ ^[Yy]$ ]]; then
+    exit 1
+  fi
 fi
 
 # ==========================================
@@ -238,6 +334,7 @@ sysctl -p
 if command -v go >/dev/null 2>&1; then
   info "Go уже установлен: $(go version)"
 else
+
   info "Установка Go ${GO_VERSION}..."
 
   cd /tmp
@@ -285,7 +382,7 @@ export TMPDIR=/root/tmp
 # Build Caddy
 # ==========================================
 
-info "Сборка Caddy..."
+info "Сборка Caddy с NaiveProxy..."
 
 cd /tmp
 
@@ -296,6 +393,13 @@ if [[ ! -f "/tmp/caddy" ]]; then
   error "Caddy не собрался"
   exit 1
 fi
+
+if ! /tmp/caddy list-modules | grep -q "forward_proxy"; then
+  error "NaiveProxy module не встроен"
+  exit 1
+fi
+
+info "NaiveProxy module успешно встроен"
 
 # ==========================================
 # Generate credentials
@@ -311,35 +415,36 @@ if [[ -z "${USER_PASS}" ]]; then
   USER_PASS=$(openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | head -c 16)
 fi
 
-info "Логин: $USER_NAME"
-info "Пароль: $USER_PASS"
-
 # ==========================================
-# Create config
+# Config
 # ==========================================
 
 create_dir /etc/caddy
+
+touch /etc/caddy/.naive-installer
 
 backup_file /etc/caddy/Caddyfile
 
 info "Создание Caddyfile..."
 
 cat <<EOF > /etc/caddy/Caddyfile
-:443, $DOMAIN
+:443, $DOMAIN {
 
-tls $EMAIL
+  tls $EMAIL
 
-route {
-  forward_proxy {
-    basic_auth $USER_NAME $USER_PASS
-    hide_ip
-    hide_via
-    probe_resistance
-  }
+  route {
 
-  reverse_proxy $FAKE_SITE {
-    header_up Host {upstream_hostport}
-    header_up X-Forwarded-Host {host}
+    forward_proxy {
+      basic_auth $USER_NAME $USER_PASS
+      hide_ip
+      hide_via
+      probe_resistance
+    }
+
+    reverse_proxy $FAKE_SITE {
+      header_up Host {upstream_hostport}
+      header_up X-Forwarded-Host {host}
+    }
   }
 }
 EOF
@@ -349,6 +454,8 @@ EOF
 # ==========================================
 
 info "Установка Caddy..."
+
+systemctl stop caddy 2>/dev/null || true
 
 mv /tmp/caddy /usr/bin/caddy
 
@@ -363,7 +470,7 @@ info "Проверка конфигурации..."
 /usr/bin/caddy validate --config /etc/caddy/Caddyfile
 
 # ==========================================
-# Systemd service
+# Service
 # ==========================================
 
 backup_file /etc/systemd/system/caddy.service
@@ -402,7 +509,7 @@ WantedBy=multi-user.target
 EOF
 
 # ==========================================
-# Enable service
+# Start service
 # ==========================================
 
 info "Запуск сервиса..."
@@ -410,22 +517,20 @@ info "Запуск сервиса..."
 systemctl daemon-reload
 systemctl enable --now caddy
 
-# ==========================================
-# Check service
-# ==========================================
-
-sleep 2
+sleep 3
 
 if systemctl is-active --quiet caddy; then
   info "Caddy успешно запущен"
 else
   error "Caddy не запустился"
+
   journalctl -u caddy --no-pager -n 50
+
   exit 1
 fi
 
 # ==========================================
-# Install WARP
+# WARP
 # ==========================================
 
 if [[ "$INSTALL_WARP" == true ]]; then
@@ -452,7 +557,7 @@ if [[ "$INSTALL_WARP" == true ]]; then
   warp-cli mode proxy || true
   warp-cli connect || true
 
-  warn "При использовании WARP настройте outbound proxy вручную"
+  warn "WARP установлен"
 fi
 
 # ==========================================
@@ -463,10 +568,6 @@ echo ""
 echo "========================================"
 echo "ГОТОВО 🚀"
 echo "========================================"
-
-echo ""
-echo "Домен:"
-echo "https://$DOMAIN"
 
 echo ""
 echo "NaiveProxy URL:"
@@ -511,4 +612,11 @@ proxies:
 EOF
 
 echo ""
+echo "Проверка модуля:"
+echo "caddy list-modules | grep forward_proxy"
+
+echo ""
+echo "========================================"
+echo "Лог файл:"
+echo "$LOG_FILE"
 echo "========================================"
