@@ -26,10 +26,16 @@
 
 ## 📦 Установка
 
-Скопируй и выполни:
-
 ```sh
 bash <(curl -sSL https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/refs/heads/main/install.sh)
+```
+
+---
+
+## 📦 Удаление
+
+```sh
+bash <(curl -sSL https://raw.githubusercontent.com/larionovmike-collab/naive-warp-installer/refs/heads/main/install.sh) --uninstall
 ```
 
 ---
